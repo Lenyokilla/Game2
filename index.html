@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>TERRA · City Builder</title>
+<!-- ===== PWA ===== -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#241b11">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- ===== iOS Homescreen ===== -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TERRA">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gold:#c9a227; --paper:#f1e6cf; --panel:#241b11; --panel-2:#332617; --panel-line:#4a3a24;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;background:#15100a;font-family:'Outfit',system-ui,sans-serif;color:var(--paper);}
+  #app{display:flex;flex-direction:column;height:100dvh;max-width:520px;margin:0 auto;position:relative;background:#15100a;}
+
+  #topbar{flex:0 0 auto;display:flex;align-items:center;gap:6px;
+    padding:calc(10px + env(safe-area-inset-top)) 12px 10px;
+    background:linear-gradient(180deg,var(--panel-2),var(--panel));border-bottom:2px solid var(--panel-line);z-index:5;}
+  #title{font-family:'Cinzel',serif;font-weight:700;font-size:15px;letter-spacing:2px;color:var(--gold);margin-right:auto;}
+  #title span{opacity:.55;font-size:10px;letter-spacing:1px;display:block;color:var(--paper);font-family:'Outfit';}
+  .stat{display:flex;align-items:center;gap:5px;background:#1c150d;border:1px solid var(--panel-line);
+    border-radius:9px;padding:5px 9px;font-weight:600;font-size:13px;min-width:60px;justify-content:center;}
+  .stat .ic{font-size:14px;} .stat.money{color:var(--gold);} .stat.pop{color:#9ec6e8;}
+  #cheat{border:1px solid var(--gold);background:#2c2012;color:var(--gold);font-weight:700;font-size:12px;
+    border-radius:9px;padding:6px 9px;letter-spacing:.3px;}
+  #cheat:active{background:var(--gold);color:#1c150d;}
+
+  #stage{flex:1 1 auto;position:relative;overflow:hidden;
+    background:radial-gradient(130% 130% at 50% 10%, #2a2013 0%, #160f08 75%);}
+  canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
+
+  #hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(20,15,9,.82);
+    border:1px solid var(--panel-line);backdrop-filter:blur(4px);padding:7px 14px;border-radius:20px;
+    font-size:12px;color:var(--paper);pointer-events:none;transition:opacity .35s;white-space:nowrap;max-width:92%;text-align:center;z-index:4;}
+  #hint.hide{opacity:0;}
+
+  #zoom{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:6px;z-index:4;}
+  #zoom button{width:42px;height:42px;border-radius:11px;border:1px solid var(--panel-line);
+    background:rgba(28,21,13,.85);color:var(--paper);font-size:22px;font-weight:700;backdrop-filter:blur(4px);}
+  #zoom button:active{background:#b1542d;}
+
+  #dock{flex:0 0 auto;background:linear-gradient(0deg,var(--panel),var(--panel-2));
+    border-top:2px solid var(--panel-line);padding:9px 8px calc(9px + env(safe-area-inset-bottom));}
+  #tools{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;} #tools::-webkit-scrollbar{display:none;}
+  .tool{flex:0 0 auto;width:66px;border-radius:13px;border:1px solid var(--panel-line);background:#1c150d;
+    padding:8px 4px 6px;display:flex;flex-direction:column;align-items:center;gap:2px;transition:transform .08s,border-color .15s,background .15s;}
+  .tool:active{transform:scale(.94);}
+  .tool.active{border-color:var(--gold);background:#2c2012;box-shadow:0 0 0 1px var(--gold) inset;}
+  .tool .glyph{font-size:24px;line-height:1;} .tool .nm{font-size:10.5px;font-weight:600;}
+  .tool .cost{font-size:10px;color:var(--gold);font-weight:600;} .tool.util .cost{color:#a98;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div id="title">TERRA<span>Prototyp · isometrisch</span></div>
+    <div class="stat money"><span class="ic">⊚</span><span id="money">120</span></div>
+    <button id="cheat">+100</button>
+    <div class="stat pop"><span class="ic">☖</span><span id="pop">0</span></div>
+  </div>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hint">Tippe ein Werkzeug an · „Hand" zum Schieben &amp; Zoomen</div>
+    <div id="zoom"><button id="zin">+</button><button id="zout">−</button></div>
+  </div>
+
+  <div id="dock"><div id="tools"></div></div>
+</div>
+
+<script>
+/* ============================================================
+   TERRA — Mobiler City-Builder · isometrisches Grundgerüst
+   ============================================================ */
+const GRID=16;
+const TW=64, TH=32;       // isometrische Diamant-Maße (Welt-px)
+const TICK=420;
+
+const BUILD={
+  hand:   {label:'Hand',    glyph:'✥',  cost:0,  util:true},
+  road:   {label:'Straße',  glyph:'⌗',  cost:4},
+  house:  {label:'Haus',    glyph:'🛖', cost:12},
+  well:   {label:'Brunnen', glyph:'💧', cost:30, service:'water', every:16},
+  market: {label:'Markt',   glyph:'🧺', cost:55, service:'food',  every:20},
+  forum:  {label:'Forum',   glyph:'🏛️', cost:80, service:'tax',   every:24},
+  raze:   {label:'Abriss',  glyph:'⛏', cost:0,  util:true},
+};
+const ORDER=['hand','road','house','well','market','forum','raze'];
+
+const HOUSE=[{pop:1,tax:0},{pop:4,tax:2},{pop:9,tax:5}];
+const SERVICE_LIFE=55;
+
+// 3D-Farben (Dachfläche / linke / rechte Wand) + Höhe
+const H3D=[
+  {top:'#b58f5e',left:'#7e5f39',right:'#9a7548',h:13,glyph:'🛖'},
+  {top:'#cda46c',left:'#9a7647',right:'#b58d57',h:19,glyph:'🏠'},
+  {top:'#e7dcc2',left:'#b7a682',right:'#d3c3a0',h:27,glyph:'🏡'},
+];
+const B3D={
+  well:  {top:'#4f93b0',left:'#2f6580',right:'#3f7c98',h:18,glyph:'💧', wcol:'#3a7d9c'},
+  market:{top:'#c46a40',left:'#8f4526',right:'#ad5733',h:20,glyph:'🧺', wcol:'#b1542d'},
+  forum: {top:'#d8b84a',left:'#a98a2c',right:'#c2a23b',h:30,glyph:'🏛️', wcol:'#c9a227'},
+};
+
+// ---- Zustand ----
+let money=120, pop=0, tool='hand';
+let grid=[], walkers=[], tickCount=0;
+function blankTile(){return {type:'empty',lvl:0,water:0,food:0,taxed:0,spawn:0};}
+for(let y=0;y<GRID;y++){grid[y]=[];for(let x=0;x<GRID;x++)grid[y][x]=blankTile();}
+
+// ---- Canvas & isometrische Kamera ----
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let cam={x:0,y:0,scale:0.62};
+let DPR=Math.min(window.devicePixelRatio||1,2);
+
+function resize(){const r=cv.parentElement.getBoundingClientRect();
+  cv.width=r.width*DPR;cv.height=r.height*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);}
+
+function worldOf(gx,gy){return {wx:(gx-gy)*TW/2, wy:(gx+gy)*TH/2};}
+function project(gx,gy){const w=worldOf(gx,gy);return {x:cam.x+w.wx*cam.scale, y:cam.y+w.wy*cam.scale};}
+function screenToGrid(sx,sy){
+  const wx=(sx-cam.x)/cam.scale, wy=(sy-cam.y)/cam.scale;
+  const gx=(wx/(TW/2)+wy/(TH/2))/2, gy=(wy/(TH/2)-wx/(TW/2))/2;
+  return {gx:Math.floor(gx), gy:Math.floor(gy)};
+}
+function inBounds(x,y){return x>=0&&y>=0&&x<GRID&&y<GRID;}
+function centerCam(){const r=cv.parentElement.getBoundingClientRect();
+  const w=worldOf(GRID/2,GRID/2);
+  cam.x=r.width/2 - w.wx*cam.scale; cam.y=r.height*0.42 - w.wy*cam.scale;}
+
+// ---- Zeichenhelfer ----
+function poly(pts){ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x,pts[i].y);ctx.closePath();ctx.fill();}
+function diamond(gx,gy,fill,stroke){
+  const t=project(gx,gy),r=project(gx+1,gy),b=project(gx+1,gy+1),l=project(gx,gy+1);
+  ctx.beginPath();ctx.moveTo(t.x,t.y);ctx.lineTo(r.x,r.y);ctx.lineTo(b.x,b.y);ctx.lineTo(l.x,l.y);ctx.closePath();
+  ctx.fillStyle=fill;ctx.fill();
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}
+}
+function block(gx,gy,def){
+  const t=project(gx,gy),r=project(gx+1,gy),b=project(gx+1,gy+1),l=project(gx,gy+1);
+  const hh=def.h*cam.scale;
+  const tt={x:t.x,y:t.y-hh},rt={x:r.x,y:r.y-hh},bt={x:b.x,y:b.y-hh},lt={x:l.x,y:l.y-hh};
+  ctx.fillStyle=def.left;  poly([l,b,bt,lt]);        // linke Wand
+  ctx.fillStyle=def.right; poly([b,r,rt,bt]);         // rechte Wand
+  ctx.fillStyle=def.top;   poly([tt,rt,bt,lt]);       // Dachfläche
+  const cx=(tt.x+bt.x)/2, cy=(tt.y+bt.y)/2;
+  ctx.font=(22*cam.scale)+'px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(def.glyph,cx,cy);
+  return {cx,topY:Math.min(tt.y,rt.y,lt.y)};
+}
+function dotAt(x,y,col){ctx.beginPath();ctx.arc(x,y,3*cam.scale+1,0,7);ctx.fillStyle=col;ctx.fill();}
+
+function onScreen(gx,gy){const p=project(gx,gy);const r=cv.parentElement.getBoundingClientRect();
+  return p.x>-80&&p.x<r.width+80&&p.y>-120&&p.y<r.height+80;}
+
+// ---- Rendering ----
+function render(){
+  const r=cv.parentElement.getBoundingClientRect();
+  ctx.clearRect(0,0,r.width,r.height);
+  // Boden (Diamanten), hinten->vorne
+  for(let s=0;s<2*GRID;s++) for(let y=0;y<GRID;y++){const x=s-y; if(x<0||x>=GRID)continue;
+    if(!onScreen(x,y))continue;
+    const c=grid[y][x];
+    if(c.type==='road') diamond(x,y,'#e7dabc','rgba(60,46,26,.25)');
+    else diamond(x,y, ((x+y)&1)?'#d3ba90':'#cab084','rgba(60,46,26,.18)');
+  }
+  // Objekte (Gebäude + Walker) nach Tiefe sortiert
+  const objs=[];
+  for(let y=0;y<GRID;y++)for(let x=0;x<GRID;x++){const c=grid[y][x];
+    if(c.type==='house'||c.type==='well'||c.type==='market'||c.type==='forum')
+      objs.push({d:x+y, kind:'b', x,y,c});}
+  for(const w of walkers){const gx=w.x+(w.dx||0)*w.prog, gy=w.y+(w.dy||0)*w.prog;
+    objs.push({d:gx+gy+0.05, kind:'w', gx,gy,w});}
+  objs.sort((a,b)=>a.d-b.d);
+  for(const o of objs){
+    if(o.kind==='b'){
+      if(!onScreen(o.x,o.y))continue;
+      if(o.c.type==='house'){
+        const def=H3D[o.c.lvl]; const m=block(o.x,o.y,def);
+        const y=m.topY-9*cam.scale, sp=8*cam.scale, off='#5b4a3288';
+        dotAt(m.cx-sp,y,o.c.water>0?'#3a7d9c':off);
+        dotAt(m.cx,   y,o.c.food >0?'#b1542d':off);
+        dotAt(m.cx+sp,y,o.c.taxed>0?'#c9a227':off);
+      } else block(o.x,o.y,B3D[o.c.type]);
+    } else {
+      const p=project(o.gx+0.5,o.gy+0.5); const lift=10*cam.scale;
+      ctx.beginPath();ctx.ellipse(p.x,p.y,6*cam.scale,3*cam.scale,0,0,7);ctx.fillStyle='rgba(0,0,0,.25)';ctx.fill();
+      ctx.beginPath();ctx.arc(p.x,p.y-lift,5*cam.scale+1,0,7);ctx.fillStyle=o.w.color;ctx.fill();
+      ctx.lineWidth=2;ctx.strokeStyle='#1a130b';ctx.stroke();
+    }
+  }
+}
+
+// ---- Simulation (unverändert zur Logik) ----
+function neighbors(x,y){return [[x,y-1],[x+1,y],[x,y+1],[x-1,y]];}
+function tick(){
+  tickCount++;
+  for(let y=0;y<GRID;y++)for(let x=0;x<GRID;x++){const c=grid[y][x];
+    if(!c.service)continue; c.spawn++;
+    const adj=neighbors(x,y).find(([nx,ny])=>inBounds(nx,ny)&&grid[ny][nx].type==='road');
+    if(adj&&c.spawn>=BUILD[c.type].every){c.spawn=0;
+      walkers.push({x:adj[0],y:adj[1],from:null,service:c.service,color:B3D[c.type].wcol,life:26,prog:0,dx:0,dy:0});}
+  }
+  const next=[];
+  for(const w of walkers){
+    for(const [nx,ny] of neighbors(w.x,w.y)){
+      if(inBounds(nx,ny)&&grid[ny][nx].type==='house'){const h=grid[ny][nx];
+        if(w.service==='water')h.water=SERVICE_LIFE;
+        else if(w.service==='food')h.food=SERVICE_LIFE;
+        else if(w.service==='tax'){if(h.lvl>0&&h.taxed<=0)money+=HOUSE[h.lvl].tax; h.taxed=SERVICE_LIFE;}
+      }
+    }
+    w.life--; if(w.life<=0)continue;
+    let opts=neighbors(w.x,w.y).filter(([nx,ny])=>inBounds(nx,ny)&&grid[ny][nx].type==='road');
+    let fwd=opts.filter(([nx,ny])=>!(w.from&&nx===w.from[0]&&ny===w.from[1]));
+    let pool=fwd.length?fwd:opts;
+    if(pool.length){const [nx,ny]=pool[(Math.random()*pool.length)|0];
+      w.dx=nx-w.x;w.dy=ny-w.y;w.from=[w.x,w.y];w.prog=0;w.tx=nx;w.ty=ny;next.push(w);}
+  }
+  walkers=next;
+  pop=0;
+  for(let y=0;y<GRID;y++)for(let x=0;x<GRID;x++){const h=grid[y][x]; if(h.type!=='house')continue;
+    if(h.water>0)h.water--; if(h.food>0)h.food--; if(h.taxed>0)h.taxed--;
+    let lvl=0; if(h.water>0)lvl=1; if(h.water>0&&h.food>0)lvl=2; h.lvl=lvl; pop+=HOUSE[lvl].pop;}
+  updateHUD();
+}
+// nach Bewegung Position übernehmen
+function commitMoves(){for(const w of walkers){if(w.tx!=null){w.x=w.tx;w.y=w.ty;w.tx=w.ty=null;w.dx=0;w.dy=0;}}}
+
+let lastTick=performance.now();
+function loop(now){const frac=Math.min((now-lastTick)/TICK,1);
+  for(const w of walkers)w.prog=frac; render(); requestAnimationFrame(loop);}
+setInterval(()=>{commitMoves();lastTick=performance.now();tick();},TICK);
+
+// ---- Aktionen ----
+function place(gx,gy){
+  if(!inBounds(gx,gy))return; const c=grid[gy][gx];
+  if(tool==='raze'){if(c.type!=='empty'){grid[gy][gx]=blankTile();updateHUD();}return;}
+  const def=BUILD[tool]; if(!def||def.util)return;
+  if(c.type!=='empty'){flash('Feld belegt');return;}
+  if(money<def.cost){flash('Zu wenig Denar — nutze +100');return;}
+  money-=def.cost; const nt=blankTile(); nt.type=tool; if(def.service)nt.service=def.service;
+  grid[gy][gx]=nt; updateHUD();
+}
+function flash(msg){hint.textContent=msg;hint.classList.remove('hide');
+  clearTimeout(flash._t);flash._t=setTimeout(()=>hint.classList.add('hide'),1500);}
+
+// ---- HUD & Dock ----
+const elMoney=document.getElementById('money'),elPop=document.getElementById('pop'),hint=document.getElementById('hint');
+function updateHUD(){elMoney.textContent=money;elPop.textContent=pop;}
+document.getElementById('cheat').onclick=()=>{money+=100;updateHUD();flash('+100 Denar (Testmodus)');};
+
+const toolsEl=document.getElementById('tools');
+ORDER.forEach(key=>{const d=BUILD[key];const b=document.createElement('button');
+  b.className='tool'+(d.util?' util':'')+(key==='hand'?' active':'');b.dataset.key=key;
+  b.innerHTML='<span class="glyph">'+d.glyph+'</span><span class="nm">'+d.label+'</span>'+
+    (d.util?'<span class="cost">'+(key==='hand'?'∞':'—')+'</span>':'<span class="cost">'+d.cost+'</span>');
+  b.onclick=()=>{tool=key;document.querySelectorAll('.tool').forEach(t=>t.classList.toggle('active',t.dataset.key===key));
+    flash(d.util?(key==='hand'?'Karte schieben & zoomen':'Tippe ein Gebäude zum Abreißen'):d.label+' — tippe auf die Karte ('+d.cost+' Denar)');};
+  toolsEl.appendChild(b);});
+
+// ---- Touch / Pointer ----
+const pointers=new Map(); let panLast=null,pinchLast=null,paintSet=new Set();
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size===1){panLast={x:e.clientX,y:e.clientY};
+    if(tool!=='hand'){paintSet.clear();paintAt(e);}}
+  else if(pointers.size===2){const p=[...pointers.values()];
+    pinchLast={d:dist(p[0],p[1]),mx:(p[0].x+p[1].x)/2,my:(p[0].y+p[1].y)/2};panLast=null;}});
+cv.addEventListener('pointermove',e=>{if(!pointers.has(e.pointerId))return;
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size>=2){const p=[...pointers.values()];
+    const d=dist(p[0],p[1]),mx=(p[0].x+p[1].x)/2,my=(p[0].y+p[1].y)/2;
+    if(pinchLast){zoomAt(mx,my,d/pinchLast.d);cam.x+=mx-pinchLast.mx;cam.y+=my-pinchLast.my;}
+    pinchLast={d,mx,my};return;}
+  if(tool==='hand'){if(panLast){cam.x+=e.clientX-panLast.x;cam.y+=e.clientY-panLast.y;}panLast={x:e.clientX,y:e.clientY};}
+  else if(tool==='road'||tool==='raze'){paintAt(e);}});
+function endPtr(e){pointers.delete(e.pointerId);if(pointers.size<2)pinchLast=null;if(pointers.size===0)panLast=null;}
+cv.addEventListener('pointerup',endPtr);cv.addEventListener('pointercancel',endPtr);
+function paintAt(e){const r=cv.getBoundingClientRect();
+  const {gx,gy}=screenToGrid(e.clientX-r.left,e.clientY-r.top);const key=gx+','+gy;
+  if(paintSet.has(key))return;paintSet.add(key);place(gx,gy);}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+function zoomAt(cx,cy,f){const r=cv.getBoundingClientRect();const old=cam.scale;
+  cam.scale=Math.max(0.35,Math.min(1.8,cam.scale*f));const k=cam.scale/old;
+  const lx=cx-r.left,ly=cy-r.top;cam.x=lx-(lx-cam.x)*k;cam.y=ly-(ly-cam.y)*k;}
+document.getElementById('zin').onclick=()=>{const r=cv.getBoundingClientRect();zoomAt(r.left+r.width/2,r.top+r.height/2,1.2);};
+document.getElementById('zout').onclick=()=>{const r=cv.getBoundingClientRect();zoomAt(r.left+r.width/2,r.top+r.height/2,1/1.2);};
+
+// ---- Start ----
+window.addEventListener('resize',resize);
+resize();centerCam();updateHUD();requestAnimationFrame(loop);
+setTimeout(()=>flash('Lege Straßen, dann Häuser an einen Brunnen ✦'),900);
+
+// ---- PWA: Service Worker registrieren (relativer Pfad für GitHub Pages) ----
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});
+}
+
+</script>
+</body>
+</html>
